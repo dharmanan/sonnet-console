@@ -14,9 +14,9 @@
       <div>
         <div class="eyebrow">FLOP / Technocore · sonnet-2</div>
         <h1>Sonnet Console</h1>
-        <p>Private-key-only team workspace for registration verification, roster consent, one-word turns and final submission.</p>
+        <p>Kayıt doğrulama, takım onayı, tek kelimelik turlar ve final gönderimi için güvenli takım çalışma alanı.</p>
       </div>
-      <button id="refresh" class="ghost" type="button">Refresh</button>
+      <button id="refresh" class="ghost" type="button">Yenile</button>
     </header>
 
     <section id="connectPanel" class="card connect-card">
@@ -26,124 +26,227 @@
         <p class="muted">Enter the 64-character Ed25519 private key used by Technocore. It stays only in this browser tab and is never sent to the server.</p>
       </div>
       <div class="secret-row">
-        <input id="privateKey" type="password" autocomplete="off" spellcheck="false" maxlength="64" placeholder="64-character hex private key">
+        <input id="privateKey" type="password" autocomplete="off" spellcheck="false" maxlength="64" placeholder="64 karakterlik hex özel anahtar">
         <button id="connectButton" class="primary" type="button">Connect</button>
       </div>
-      <p class="security-note">Never paste this key into chat, GitHub, a room message or any shared form.</p>
+      <p class="security-note">Bu anahtarı asla sohbete, GitHub’a, oda mesajına veya paylaşılan bir forma yapıştırma.</p>
     </section>
 
     <section id="identityPanel" class="card hidden">
       <div class="card-head">
         <div>
           <span class="step">01</span>
-          <h2>Connected identity</h2>
+          <h2>Bağlı kimlik</h2>
         </div>
-        <button id="disconnect" class="ghost" type="button">Forget key</button>
+        <button id="disconnect" class="ghost" type="button">Anahtarı unut</button>
       </div>
       <dl class="kv"><div><dt>DID</dt><dd id="did">—</dd></div></dl>
     </section>
 
     <nav class="nav">
-      <button class="active" data-view="registrationView" type="button">Registration</button>
-      <button data-view="teamView" type="button">Team</button>
-      <button data-view="writeView" type="button">Write</button>
+      <button class="active" data-view="registrationView" type="button">Kayıt</button>
+      <button data-view="teamView" type="button">Takım</button>
+      <button data-view="writeView" type="button">Yazım</button>
     </nav>
 
     <section id="registrationView" class="view active">
       <div class="card">
         <div class="card-head">
-          <div><span class="step">02</span><h2>Writer registration</h2></div>
+          <div><span class="step">02</span><h2>Yazar kaydı</h2></div>
           <span id="registrationStatus" class="badge">not-registered</span>
         </div>
         <div class="two-col">
-          <label>X handle<input id="xHandle" autocomplete="off" spellcheck="false" placeholder="KohenEric"></label>
-          <div><span class="label">Request ID</span><code id="registrationRequest">—</code></div>
+          <label>X kullanıcı adı<input id="xHandle" autocomplete="off" spellcheck="false" placeholder="KohenEric"></label>
+          <div><span class="label">İstek ID</span><code id="registrationRequest">—</code></div>
         </div>
         <p id="registrationNote" class="muted"></p>
-        <button id="registerWriter" class="primary" type="button">Register as writer</button>
+        <button id="registerWriter" class="primary" type="button">Yazar olarak kaydol</button>
       </div>
     </section>
 
     <section id="teamView" class="view">
       <div class="card">
         <div class="card-head">
-          <div><span class="step">03</span><h2>Build team</h2></div>
-          <span id="rosterState" class="badge pending">NOT READY</span>
+          <div><span class="step">03</span><h2>Takımı kur</h2></div>
+          <span id="rosterState" class="badge pending">HAZIR DEĞİL</span>
         </div>
         <div class="two-col">
-          <label>Team ID<input id="gameId" autocomplete="off" spellcheck="false" placeholder="my-team"></label>
-          <div><span class="label">Room generation</span><strong id="generation">—</strong></div>
+          <label>Takım ID<input id="gameId" autocomplete="off" spellcheck="false" placeholder="my-team"></label>
+          <div><span class="label">Oda sürümü</span><strong id="generation">—</strong></div>
+        </div>
+        <div id="setupProof" class="hidden">
+          <div class="two-col">
+            <div>
+              <span class="label">Kurulum kanıtı</span>
+              <strong id="setupProofStatus">—</strong>
+            </div>
+            <div>
+              <span class="label">İstek ID</span>
+              <code id="setupProofRequest">—</code>
+            </div>
+            <div>
+              <span class="label">Hakem DID</span>
+              <code id="setupProofReferee">—</code>
+            </div>
+            <div>
+              <span class="label">Hakem imzası</span>
+              <strong id="setupProofSignature">—</strong>
+            </div>
+            <div>
+              <span class="label">Discovery oda sıra no</span>
+              <strong id="setupProofSeq">—</strong>
+            </div>
+            <div>
+              <span class="label">Oda sürümü kanıtı</span>
+              <strong id="setupProofGeneration">—</strong>
+            </div>
+          </div>
         </div>
         <div class="member-toolbar">
           <input id="memberDid" autocomplete="off" spellcheck="false" placeholder="did:key:z6Mk...">
-          <button id="addMember" class="secondary" type="button">Add writer</button>
+          <button id="addMember" class="secondary" type="button">Yazar ekle</button>
           <span id="memberCount" class="muted">0 / 8</span>
         </div>
         <div id="members" class="members"></div>
         <div class="actions">
-          <button id="requestRoom" class="primary" type="button">Request team room</button>
-          <button id="signRoster" class="secondary" type="button">Sign identical roster</button>
+          <button id="requestRoom" class="primary" type="button">Takım odası iste</button>
+          <button id="signRoster" class="secondary" type="button">Aynı takım listesini imzala</button>
         </div>
-        <p class="muted">The room is usable only after a verified referee setup receipt. Writing remains locked until the verified referee reports <code>roster_ready:true</code>.</p>
+        <p class="muted"><strong>Kayıt etiketleri yalnızca bilgilendirme amaçlıdır.</strong> Technocore kayıt geçmişi döngüseldir; bu yüzden “geçmiş bulunamadı” kayıtlı olunmadığı anlamına gelmez. Takım uygunluğuna resmi hakem karar verir. Bu Console, takım kurulumunu ve <code>roster_ready:true</code> durumunu yalnızca hakem mesajının Ed25519 imzası sabitlenmiş hakem DID’i ile doğrulandıktan sonra kabul eder. Gerçek şiir gönderimi, doğrulanmış roster-ready receipt gelene kadar kilitli kalır.</p>
       </div>
     </section>
 
     <section id="writeView" class="view">
       <div id="workspaceLocked" class="card locked-card">
         <span class="step">04</span>
-        <h2>Writing locked</h2>
-        <p>Complete the accepted writer roster first. The console will unlock this section only after a cryptographically verified referee receipt reports that the roster is ready.</p>
+        <h2>Çalışma alanı kilitli</h2>
+        <p>Önce kriptografik olarak doğrulanmış takım odası kurulumunu bekle.</p>
       </div>
 
       <div id="workspace" class="hidden">
+        <section id="previewBanner" class="card hidden">
+          <strong>ÖNİZLEME MODU</strong>
+          <p class="muted">Takım odası doğrulandı ancak takım listesi henüz hazır değil. Kelime arama, DID harf kontrolü, hece kontrolü ve takım planlaması kullanılabilir. Gerçek sonnet.word.v1 gönderimleri hakem roster_ready:true bildirene kadar kilitlidir.</p>
+          <div class="actions">
+            <button id="resetPreviewData" class="ghost" type="button">Test verisini sıfırla</button>
+          </div>
+        </section>
+
         <div class="workspace-grid">
           <section class="card poem-card">
             <div class="card-head">
-              <div><span class="step">04</span><h2>Live poem</h2></div>
+              <div><span class="step">04</span><h2>Canlı şiir</h2></div>
               <span id="completeBadge" class="badge pending">WRITING</span>
             </div>
             <div class="metrics">
-              <div><span>Room</span><code id="teamRoom">—</code></div>
-              <div><span>Version</span><strong id="version">0</strong></div>
-              <div><span>Line</span><strong id="line">1 / 14</strong></div>
-              <div><span>Last writer</span><code id="lastContributor">—</code></div>
+              <div><span>Oda</span><code id="teamRoom">—</code></div>
+              <div><span>Sürüm</span><strong id="version">0</strong></div>
+              <div><span>Dize</span><strong id="line">1 / 14</strong></div>
+              <div><span>Son yazar</span><code id="lastContributor">—</code></div>
             </div>
-            <pre id="poem" class="poem">Accepted words will appear here.</pre>
-            <div class="state-box"><span>Verified state hash</span><code id="stateHash">—</code></div>
+            <pre id="poem" class="poem">Kabul edilen kelimeler burada görünecek.</pre>
+            <div class="state-box"><span>Doğrulanmış durum hash’i</span><code id="stateHash">—</code></div>
           </section>
 
           <section class="card word-card">
-            <h2>Next word</h2>
-            <input id="word" autocomplete="off" spellcheck="false" placeholder="One English word">
+            <h2>Sıradaki kelime</h2>
+            <input id="word" autocomplete="off" spellcheck="false" placeholder="Bir İngilizce kelime">
             <p id="wordMeta" class="muted"></p>
             <div id="suggestions" class="suggestions"></div>
-            <button id="sendWord" class="primary" type="button" disabled>Propose word</button>
-            <p class="muted">The button only enables when the word matches your DID letters, exists in the pinned CMUdict, fits the 10-syllable line budget, and you were not the previous accepted contributor.</p>
+            <div id="wordSender" class="word-sender"></div>
+            <button id="sendWord" class="primary" type="button" disabled>Kelimeyi gönder</button>
+            <button id="previewWordTest" class="secondary hidden" type="button">Test gönderimi</button>
+
+            <div id="lastWordStatus" class="word-status hidden">
+              <div class="word-status-head">
+                <strong>Son kelime işlemi</strong>
+                <span id="lastWordBadge" class="badge pending">HAKEM BEKLENİYOR</span>
+              </div>
+
+              <div class="word-status-grid">
+                <div>
+                  <span class="label">Kelime</span>
+                  <strong id="lastWordValue">—</strong>
+                </div>
+
+                <div>
+                  <span class="label">Gönderen</span>
+                  <strong id="lastWordWriter">—</strong>
+                </div>
+
+                <div>
+                  <span class="label">İstek ID</span>
+                  <code id="lastWordRequest">—</code>
+                </div>
+
+                <div>
+                  <span class="label">Hakem sonucu</span>
+                  <strong id="lastWordResult">—</strong>
+                </div>
+              </div>
+
+              <p id="lastWordReason" class="muted hidden"></p>
+            </div>
+            <p class="muted">Buton yalnızca kelime DID harflerinle uyumluysa, sabit CMUdict sözlüğünde bulunuyorsa, 10 hecelik dize sınırına sığıyorsa ve son kabul edilen yazan kişi sen değilsen açılır.</p>
           </section>
         </div>
 
-        <section class="card">
-          <h2>Planning room</h2>
-          <div class="planning-row">
-            <input id="planning" autocomplete="off" spellcheck="false" placeholder="Signed team planning message">
-            <button id="planningSend" class="secondary" type="button">Send</button>
+        <section class="card draft-card">
+          <div class="card-head">
+            <div>
+              <h2>Şiir taslağı</h2>
+              <p class="muted">Takımın planladığı 14 dizelik şiiri burada tut. Hakem tarafından kabul edilen kelimeler sırayla otomatik işaretlenir.</p>
+            </div>
+            <span id="draftProgress" class="badge pending">0 / 0</span>
           </div>
+
+          <input id="poemDraftFile" class="hidden" type="file" accept=".txt,text/plain">
+
+          <div class="draft-toolbar">
+            <div>
+              <button id="uploadPoemDraft" class="secondary" type="button">TXT taslağı yükle</button>
+              <button id="clearPoemDraft" class="ghost hidden" type="button">Taslağı kaldır</button>
+            </div>
+            <span id="draftMeta" class="muted">Taslak henüz yüklenmedi.</span>
+          </div>
+
+          <div id="draftMismatch" class="draft-warning hidden"></div>
+
+          <div id="draftPreview" class="draft-preview draft-locked">
+            <p class="muted">14 dizelik şiir taslağını .txt dosyası olarak yükle.</p>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Takım kelime kontrolü</h2>
+          <p class="muted">Bir İngilizce kelime yaz; takım listesindeki hangi yazarların bu kelimenin tüm harflerini kullanabildiğini gör.</p>
+          <input id="teamWordCheck" autocomplete="off" spellcheck="false" placeholder="Takımda bir kelimeyi kontrol et">
+          <div id="teamWordMatrix" class="members"></div>
+        </section>
+
+        <section class="card chat-card">
+          <h2>Özel takım sohbeti</h2>
+          <p class="muted">Bu mesajlar Technocore’a gönderilmez. Vercel’de şifre korumalı özel takım çalışma alanında paylaşılır. Seed veya özel anahtar asla gönderme.</p>
           <div id="roomFeed" class="feed"></div>
+          <div class="planning-row">
+            <textarea id="planning" rows="2" autocomplete="off" spellcheck="false" placeholder="Takıma mesaj yaz..."></textarea>
+            <button id="planningSend" class="secondary" type="button">Gönder</button>
+          </div>
         </section>
 
         <section id="submitPanel" class="card hidden">
-          <div class="card-head"><div><span class="step">05</span><h2>Final submission</h2></div></div>
-          <p>Only the final accepted contributor can submit. Publish the complete frozen poem from that writer's registered X account, then paste the post links or IDs below.</p>
-          <div class="state-box"><span>Canonical poem SHA-256</span><code id="poemHash">—</code></div>
+          <div class="card-head"><div><span class="step">05</span><h2>Final gönderimi</h2></div></div>
+          <p>Final gönderimini yalnızca son kabul edilen katkıyı yapan yazar yapabilir. Tamamlanmış şiiri o yazarın kayıtlı X hesabından yayınla, ardından gönderi bağlantılarını veya ID’lerini aşağıya yapıştır.</p>
+          <div class="state-box"><span>Kanonik şiir SHA-256</span><code id="poemHash">—</code></div>
           <textarea id="xPosts" rows="4" placeholder="https://x.com/handle/status/123...&#10;https://x.com/handle/status/456..."></textarea>
-          <button id="submitPoem" class="primary" type="button">Submit poem</button>
+          <button id="submitPoem" class="primary" type="button">Şiiri gönder</button>
         </section>
       </div>
     </section>
 
     <section class="notice">
-      <strong>Trust model</strong>
-      <p>Technocore posting is signed in your browser. The local server receives only public DID, nonce, signature and message text. Referee conclusions are treated as official only after the room message's Ed25519 signature verifies against the pinned referee DID.</p>
+      <strong>Güven modeli</strong>
+      <p>Technocore gönderimleri tarayıcında imzalanır. Yerel sunucu yalnızca herkese açık DID, nonce, imza ve mesaj metnini alır. Hakem sonuçları ancak oda mesajının Ed25519 imzası sabitlenmiş hakem DID’i ile doğrulandıktan sonra resmi kabul edilir.</p>
     </section>
   </main>
   <div id="toast" class="toast" aria-live="polite"></div>

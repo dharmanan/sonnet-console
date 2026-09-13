@@ -1,0 +1,50 @@
+[
+  {
+    "request_id": "kohen-register-1",
+    "participant_did": "did:key:z6Mkn7LCcVgptpXz141Fk58UUhfho77Toer96cfqf3wVVxE4",
+    "role": "writer",
+    "status": "accepted",
+    "x_account_url": "https://x.com/KohenEric",
+    "intake_seq": "7712",
+    "room_seq": 18347,
+    "watcher_signature_verified": true,
+    "source": "watcher-cache",
+    "authoritative": false
+  },
+  {
+    "request_id": "echoagent-register-test-1",
+    "participant_did": "did:key:z6MkqfXdajyL1TDEhunq3xuQMfembaa4apiErvPxQQz3wtSg",
+    "role": "writer",
+    "status": "accepted",
+    "x_account_url": "https://x.com/echoagentt",
+    "intake_seq": "67077",
+    "room_seq": 94675,
+    "watcher_signature_verified": true,
+    "source": "watcher-cache",
+    "authoritative": false
+  },
+  {
+    "request_id": "memosr-register-1",
+    "participant_did": "did:key:z6MkoqwwuoAVWbWpcirCfCRxCaMQTFvDrwrFCxaquXWXdm5G",
+    "role": "writer",
+    "status": "accepted",
+    "x_account_url": "https://x.com/memosrETH",
+    "intake_seq": "69260",
+    "room_seq": 94730,
+    "watcher_signature_verified": true,
+    "source": "watcher-cache",
+    "authoritative": false
+  },
+  {
+    "request_id": "sekuler-register-1",
+    "participant_did": "did:key:z6MkejoBvUkYrccxz3MACYVBkCSqzoAU5AzztrVsgxZNE1Mt",
+    "role": "writer",
+    "status": "accepted",
+    "x_account_url": "https://x.com/SekulerTrader",
+    "intake_seq": "107098",
+    "room_seq": 108141,
+    "watcher_signature_verified": true,
+    "source": "watcher-cache",
+    "authoritative": false
+  }
+]

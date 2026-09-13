@@ -1,4 +1,4 @@
-import { DID_RE, REFEREE_DID, verifyOfficialRefereeMessage } from './crypto.js';
+import { DID_RE, REFEREE_DID, verifyOfficialRefereeMessage, verifyRoomMessage } from './crypto.js';
 
 export const CONTEST = Object.freeze({
   id: 'sonnet-2',
@@ -161,7 +161,13 @@ export async function extractTeamState(messages, room) {
   const proposals = new Map();
   for (const message of messages || []) {
     const record = parseRecord(message.text);
-    if (record?.type === 'sonnet.word.v1' && record.request_id) proposals.set(record.request_id, { message, record });
+    if (
+      record?.type === 'sonnet.word.v1' &&
+      record.request_id &&
+      await verifyRoomMessage(room, message)
+    ) {
+      proposals.set(record.request_id, { message, record });
+    }
   }
 
   const receipts = await verifiedReceipts(room, messages || []);
