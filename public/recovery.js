@@ -3,6 +3,8 @@ import { findVerifiedReceipt, parseRecord, receiptStatus, ROOMS } from './protoc
 const CACHE_KEY = 'sonnet-console-registration-proof-v1';
 let lastDid = '';
 let running = false;
+let applying = false;
+let authoritativeView = null;
 
 function $(selector) {
   return document.querySelector(selector);
@@ -13,23 +15,30 @@ function connectedDid() {
   return did.startsWith('did:key:z6Mk') ? did : '';
 }
 
-function setStatus(status, note, requestId = '') {
+function applyAuthoritativeView() {
+  if (!authoritativeView || applying) return;
   const badge = $('#registrationStatus');
   const message = $('#registrationNote');
   const request = $('#registrationRequest');
   const register = $('#registerWriter');
   if (!badge || !message || !request || !register) return;
 
-  badge.textContent = status;
-  badge.className = `badge ${status === 'accepted' ? 'accepted' : status === 'rejected' ? 'rejected' : 'pending'}`;
-  message.textContent = note;
-  request.textContent = requestId || '—';
-
-  // Never offer a fresh registration merely because rolling history no longer
-  // contains the old record. A missing retained record is not proof of absence.
-  if (status === 'history-unavailable' || status === 'accepted' || status === 'rejected') {
-    register.disabled = true;
+  applying = true;
+  try {
+    const { status, note, requestId } = authoritativeView;
+    badge.textContent = status;
+    badge.className = `badge ${status === 'accepted' ? 'accepted' : status === 'rejected' ? 'rejected' : 'pending'}`;
+    message.textContent = note;
+    request.textContent = requestId || '—';
+    if (status === 'history-unavailable' || status === 'accepted' || status === 'rejected') register.disabled = true;
+  } finally {
+    applying = false;
   }
+}
+
+function setStatus(status, note, requestId = '') {
+  authoritativeView = { status, note, requestId };
+  applyAuthoritativeView();
 }
 
 async function api(path) {
@@ -118,17 +127,19 @@ async function lookupDid(did) {
   setStatus('pending', 'A verified referee receipt was found, but it does not contain a final accepted/rejected status.', record.request_id);
 }
 
-async function run() {
+async function run(force = false) {
   if (running) return;
   const did = connectedDid();
   if (!did) {
     lastDid = '';
+    authoritativeView = null;
     return;
   }
 
-  // Run after the main app has finished its own retained-history refresh.
-  const current = String($('#registrationStatus')?.textContent || '').trim().toLowerCase();
-  if (did === lastDid && current !== 'not-registered') return;
+  if (!force && did === lastDid && authoritativeView) {
+    applyAuthoritativeView();
+    return;
+  }
 
   running = true;
   lastDid = did;
@@ -141,6 +152,20 @@ async function run() {
   }
 }
 
-setInterval(run, 1200);
-window.addEventListener('focus', run);
-setTimeout(run, 400);
+const observer = new MutationObserver(() => {
+  if (applying || !authoritativeView || !connectedDid()) return;
+  queueMicrotask(applyAuthoritativeView);
+});
+
+observer.observe(document.documentElement, {
+  subtree: true,
+  childList: true,
+  characterData: true,
+  attributes: true,
+  attributeFilter: ['class', 'disabled'],
+});
+
+setInterval(() => run(false), 1200);
+window.addEventListener('focus', () => run(true));
+$('#refresh')?.addEventListener('click', () => setTimeout(() => run(true), 250));
+setTimeout(() => run(true), 400);
