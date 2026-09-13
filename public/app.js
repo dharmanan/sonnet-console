@@ -913,12 +913,29 @@ async function refreshDiscovery() {
 
       const reqId = String(record.request_id);
 
-      const receipt = [...receipts]
+      let receipt = [...receipts]
         .reverse()
         .find(
           ({ record: receiptRecord }) =>
             referencedRequestId(receiptRecord) === reqId
         );
+
+      if (!receipt) {
+        try {
+          const byRequest = await readRoom(
+            ROOMS.discovery,
+            reqId
+          );
+
+          receipt = await findVerifiedReceipt(
+            ROOMS.discovery,
+            byRequest.messages || [],
+            reqId
+          );
+        } catch {
+          // Receipt henüz yoksa pending kalır.
+        }
+      }
 
       const officialStatus =
         receipt
