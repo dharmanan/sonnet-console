@@ -700,14 +700,19 @@ async function refreshMembers() {
 
 
 async function refreshDiscovery() {
-  state.setupVerified = false;
-  state.setupProof = null;
-  state.rosterReady = false;
-
   if (!state.team.gameId) {
+    state.setupVerified = false;
+    state.setupProof = null;
+    state.rosterReady = false;
+    state.team.generation = 0;
     state.discoveryMessages = [];
     return;
   }
+
+  let nextSetupVerified = false;
+  let nextSetupProof = null;
+  let nextGeneration = 0;
+  let nextRosterReady = false;
 
   const room = await readRoom(
     ROOMS.discovery,
@@ -822,10 +827,10 @@ async function refreshDiscovery() {
       Number.isSafeInteger(verifiedGeneration) &&
       verifiedGeneration > 0
     ) {
-      state.setupVerified = true;
-      state.team.generation = verifiedGeneration;
+      nextSetupVerified = true;
+      nextGeneration = verifiedGeneration;
 
-      state.setupProof = {
+      nextSetupProof = {
         status: receiptStatus(setup.record),
         requestId: String(
           deepFind(setup.record, ['request_id']) || ''
@@ -842,13 +847,12 @@ async function refreshDiscovery() {
         generationSource: 'Technocore oda verisi'
       };
 
-      saveTeam();
     }
   }
 
   const rosterMatches = ({ record }) => {
     if (
-      !state.setupVerified ||
+      !nextSetupVerified ||
       deepFind(record, ['game_id']) !== state.team.gameId ||
       receiptStatus(record) !== 'accepted' ||
       record.roster_ready !== true
@@ -870,7 +874,7 @@ async function refreshDiscovery() {
 
     if (
       generation !== undefined &&
-      Number(generation) !== Number(state.team.generation)
+      Number(generation) !== Number(nextGeneration)
     ) {
       return false;
     }
@@ -892,7 +896,12 @@ async function refreshDiscovery() {
     }
   }
 
-  state.rosterReady = Boolean(ready);
+  nextRosterReady = Boolean(ready);
+
+  state.setupVerified = nextSetupVerified;
+  state.setupProof = nextSetupProof;
+  state.team.generation = nextGeneration;
+  state.rosterReady = nextRosterReady;
 
   saveTeam();
 }
