@@ -910,6 +910,8 @@ export async function handler(req, res) {
   }
 }
 
+export default handler;
+
 if (!IS_VERCEL) {
   const server = http.createServer(handler);
 
