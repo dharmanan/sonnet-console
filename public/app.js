@@ -430,9 +430,11 @@ function renderIdentity() {
 }
 
 function renderRegistration() {
+  const recoveryBadge = $('#registrationStatus');
+  if (recoveryBadge?.dataset.recoveryOwned === 'true') return;
   const record = parseRecord(state.registration?.text);
   const receipt = parseRecord(state.registrationReceipt?.text);
-  const status = state.registrationReceipt ? receiptStatus(receipt) : state.registration ? 'pending' : 'not-registered';
+  const status = state.registrationReceipt ? receiptStatus(receipt) : state.registration ? 'pending' : state.did ? 'checking' : 'not-registered';
   $('#registrationStatus').textContent = status;
   $('#registrationStatus').className = `badge ${status}`;
   $('#registrationRequest').textContent = record?.request_id || '—';
@@ -440,7 +442,7 @@ function renderRegistration() {
   $('#xHandle').disabled = Boolean(state.registration);
   if (record?.x_account_url && !$('#xHandle').value) $('#xHandle').value = record.x_account_url.split('/').filter(Boolean).at(-1) || '';
   const reason = deepFind(receipt, ['reason', 'reason_code', 'error', 'detail']);
-  $('#registrationNote').textContent = status === 'accepted' ? 'Verified official referee receipt.' : status === 'rejected' ? `Rejected: ${reason || 'no reason supplied'}` : status === 'pending' ? 'Registration exists; no verified referee decision found yet.' : 'Writer registration not found in retained room history.';
+  $('#registrationNote').textContent = status === 'accepted' ? 'Verified official referee receipt.' : status === 'rejected' ? `Rejected: ${reason || 'no reason supplied'}` : status === 'pending' ? 'Registration exists; no verified referee decision found yet.' : status === 'checking' ? 'Checking registration history by DID…' : 'Writer registration not found in retained room history.';
 }
 
 function renderTeam() {

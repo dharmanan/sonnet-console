@@ -26,6 +26,7 @@ function applyAuthoritativeView() {
   applying = true;
   try {
     const { status, note, requestId } = authoritativeView;
+    badge.dataset.recoveryOwned = 'true';
     badge.textContent = status;
     badge.className = `badge ${status === 'accepted' ? 'accepted' : status === 'rejected' ? 'rejected' : 'pending'}`;
     message.textContent = note;
@@ -152,20 +153,9 @@ async function run(force = false) {
   }
 }
 
-const observer = new MutationObserver(() => {
-  if (applying || !authoritativeView || !connectedDid()) return;
-  queueMicrotask(applyAuthoritativeView);
-});
+// Keep the DID-derived status stable without observing our own DOM writes.
 
-observer.observe(document.documentElement, {
-  subtree: true,
-  childList: true,
-  characterData: true,
-  attributes: true,
-  attributeFilter: ['class', 'disabled'],
-});
-
-setInterval(() => run(false), 1200);
+setInterval(() => run(false), 500);
 window.addEventListener('focus', () => run(true));
 $('#refresh')?.addEventListener('click', () => setTimeout(() => run(true), 250));
 setTimeout(() => run(true), 400);
