@@ -112,6 +112,17 @@
           <button id="requestRoom" class="primary" type="button">Takım odası iste</button>
           <button id="signRoster" class="secondary" type="button">Aynı takım listesini imzala</button>
         </div>
+
+        <div id="rosterSignaturePanel" class="state-box">
+          <div class="card-head">
+            <div>
+              <strong>Takım imzaları</strong>
+              <p class="muted">Yalnızca doğrulanmış yazar imzası ve resmi hakem receipt’i burada kabul edilmiş sayılır.</p>
+            </div>
+            <span id="rosterSignatureCount" class="badge pending">0 / 4</span>
+          </div>
+          <div id="rosterSignatureList" class="members"></div>
+        </div>
         <p class="muted"><strong>Kayıt etiketleri yalnızca bilgilendirme amaçlıdır.</strong> Technocore kayıt geçmişi döngüseldir; bu yüzden “geçmiş bulunamadı” kayıtlı olunmadığı anlamına gelmez. Takım uygunluğuna resmi hakem karar verir. Bu Console, takım kurulumunu ve <code>roster_ready:true</code> durumunu yalnızca hakem mesajının Ed25519 imzası sabitlenmiş hakem DID’i ile doğrulandıktan sonra kabul eder. Gerçek şiir gönderimi, doğrulanmış roster-ready receipt gelene kadar kilitli kalır.</p>
       </div>
     </section>

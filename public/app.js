@@ -25,6 +25,7 @@ const state = {
   privateChatMessages: [],
   current: { version: 0, stateHash: '', line: 1, complete: false, lastContributor: '', acceptedWords: [] },
   rosterReady: false,
+  rosterSignatures: new Map(),
   memberStatuses: new Map(),
   poem: '',
   poemHash: '',
@@ -865,6 +866,102 @@ async function refreshDiscovery() {
     }
   }
 
+  const nextRosterSignatures = new Map(
+    state.team.members.map((did) => [
+      did,
+      state.rosterSignatures.get(did) || {
+        status: 'unsigned',
+        requestId: '',
+        reason: '',
+        messageSeq: '',
+        receiptSeq: ''
+      }
+    ])
+  );
+
+  if (nextSetupVerified && nextGeneration) {
+    for (const message of state.discoveryMessages) {
+      const record = parseRecord(message?.text);
+
+      if (
+        !record ||
+        record.type !== 'sonnet.roster.v1' ||
+        record.contest_id !== CONTEST.id ||
+        record.game_id !== state.team.gameId ||
+        record.poem_room !== expectedRoom ||
+        Number(record.room_generation) !== Number(nextGeneration) ||
+        !state.team.members.includes(message?.from) ||
+        !record.request_id ||
+        !Array.isArray(record.members) ||
+        record.members.length !== state.team.members.length ||
+        !record.members.every(
+          (did, index) =>
+            did === state.team.members[index]
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        !(await verifyRoomMessage(
+          ROOMS.discovery,
+          message
+        ))
+      ) {
+        continue;
+      }
+
+      const reqId = String(record.request_id);
+
+      const receipt = [...receipts]
+        .reverse()
+        .find(
+          ({ record: receiptRecord }) =>
+            referencedRequestId(receiptRecord) === reqId
+        );
+
+      const officialStatus =
+        receipt
+          ? receiptStatus(receipt.record)
+          : 'pending';
+
+      const reason =
+        receipt
+          ? deepFind(
+              receipt.record,
+              [
+                'reason',
+                'reason_code',
+                'error',
+                'detail'
+              ]
+            )
+          : '';
+
+      nextRosterSignatures.set(
+        message.from,
+        {
+          status:
+            officialStatus === 'accepted'
+              ? 'accepted'
+              : officialStatus === 'rejected'
+                ? 'rejected'
+                : 'pending',
+          requestId: reqId,
+          reason: String(reason || ''),
+          messageSeq:
+            message.seq ??
+            message.room_seq ??
+            '',
+          receiptSeq:
+            receipt?.message?.seq ??
+            receipt?.message?.room_seq ??
+            ''
+        }
+      );
+    }
+  }
+
   const rosterMatches = ({ record }) => {
     if (
       !nextSetupVerified ||
@@ -917,6 +1014,7 @@ async function refreshDiscovery() {
   state.setupProof = nextSetupProof;
   state.team.generation = nextGeneration;
   state.rosterReady = nextRosterReady;
+  state.rosterSignatures = nextRosterSignatures;
 
   saveTeam();
 }
@@ -1102,15 +1200,30 @@ async function signRoster() {
       );
     }
 
+    const reqId = requestId('roster');
+
     await postSigned(
       ROOMS.discovery,
       rosterRecord(
         state.team.gameId,
         state.team.generation,
         state.team.members,
-        requestId('roster')
+        reqId
       )
     );
+
+    state.rosterSignatures.set(
+      state.did,
+      {
+        status: 'pending',
+        requestId: reqId,
+        reason: '',
+        messageSeq: '',
+        receiptSeq: ''
+      }
+    );
+
+    render();
 
     await refreshDiscovery();
     render();
@@ -1952,6 +2065,88 @@ function renderTeam() {
     `).join('') ||
     '<p class="muted">No members yet.</p>';
 
+  const signatureStates =
+    state.team.members.map((did) => ({
+      did,
+      info:
+        state.rosterSignatures.get(did) || {
+          status: 'unsigned',
+          requestId: '',
+          reason: ''
+        }
+    }));
+
+  const acceptedSignatureCount =
+    signatureStates.filter(
+      ({ info }) =>
+        info.status === 'accepted'
+    ).length;
+
+  const pendingSignatureCount =
+    signatureStates.filter(
+      ({ info }) =>
+        info.status === 'pending'
+    ).length;
+
+  const rosterStatusLabel = (status) => ({
+    unsigned: 'İMZALAMADI',
+    pending: 'HAKEM BEKLENİYOR',
+    accepted: 'KABUL EDİLDİ ✓',
+    rejected: 'REDDEDİLDİ'
+  }[status] || 'BİLİNMİYOR');
+
+  const rosterStatusClass = (status) =>
+    status === 'accepted'
+      ? 'accepted'
+      : status === 'rejected'
+        ? 'rejected'
+        : 'pending';
+
+  $('#rosterSignatureCount').textContent =
+    state.rosterReady
+      ? `${state.team.members.length} / ${state.team.members.length}`
+      : `${acceptedSignatureCount} / ${state.team.members.length}`;
+
+  $('#rosterSignatureCount').className =
+    `badge ${
+      state.rosterReady
+        ? 'accepted'
+        : acceptedSignatureCount > 0
+          ? 'accepted'
+          : 'pending'
+    }`;
+
+  $('#rosterSignatureList').innerHTML =
+    signatureStates.map(({ did, info }) => {
+      const detail =
+        info.status === 'rejected' &&
+        info.reason
+          ? ` · ${info.reason}`
+          : '';
+
+      const request =
+        info.requestId
+          ? ` · ${info.requestId}`
+          : '';
+
+      return `
+        <div class="member">
+          <code title="${esc(did)}">
+            ${esc(writerName(did))} · ${esc(shortDid(did))}
+          </code>
+
+          <span
+            class="badge ${rosterStatusClass(info.status)}"
+            title="${esc(
+              `${request}${detail}`.trim()
+            )}"
+          >
+            ${esc(rosterStatusLabel(info.status))}
+          </span>
+        </div>
+      `;
+    }).join('');
+
   let rosterValid = false;
 
   try {
@@ -1976,19 +2171,29 @@ function renderTeam() {
     !state.rosterReady
   );
 
+  const ownRosterSignature =
+    state.rosterSignatures.get(state.did);
+
   $('#signRoster').disabled = !(
     state.did &&
     state.setupVerified &&
     rosterValid &&
     !state.rosterReady &&
-    state.team.members.includes(state.did)
+    state.team.members.includes(state.did) &&
+    !['pending', 'accepted'].includes(
+      ownRosterSignature?.status
+    )
   );
 
   $('#rosterState').textContent =
     state.rosterReady
-      ? 'HAZIR'
+      ? 'HAZIR · ROSTER DOĞRULANDI'
       : state.setupVerified
-        ? 'ODA DOĞRULANDI · TAKIM LİSTESİNİ İMZALA'
+        ? acceptedSignatureCount > 0
+          ? `${acceptedSignatureCount}/${state.team.members.length} İMZA KABUL EDİLDİ${pendingSignatureCount ? ` · ${pendingSignatureCount} BEKLENİYOR` : ''}`
+          : pendingSignatureCount > 0
+            ? `${pendingSignatureCount} İMZA · HAKEM BEKLENİYOR`
+            : 'ODA DOĞRULANDI · TAKIM LİSTESİNİ İMZALA'
         : 'HAZIR DEĞİL';
 
   $('#rosterState').className =
