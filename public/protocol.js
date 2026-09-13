@@ -175,12 +175,7 @@ export async function extractTeamState(messages, room) {
 
   for (const { record } of receipts) {
     if (receiptStatus(record) !== 'accepted') continue;
-    const req = referencedRequestId(record);
-    const proposal = proposals.get(req);
-    if (!proposal || acceptedByRequest.has(req)) continue;
-    acceptedByRequest.add(req);
-    acceptedWords.push(String(proposal.record.word));
-    lastContributor = proposal.message.from;
+
     const nextVersion = Number(deepFind(record, ['version', 'next_version', 'accepted_version']));
     if (Number.isSafeInteger(nextVersion) && nextVersion >= version) version = nextVersion;
     const hash = deepFind(record, ['state_hash', 'next_state_hash', 'accepted_state_hash', 'poem_state_hash']);
@@ -188,6 +183,13 @@ export async function extractTeamState(messages, room) {
     const currentLine = Number(deepFind(record, ['line', 'line_number', 'current_line']));
     if (Number.isInteger(currentLine) && currentLine >= 1 && currentLine <= 14) line = currentLine;
     if (record.complete === true) complete = true;
+
+    const req = referencedRequestId(record);
+    const proposal = proposals.get(req);
+    if (!proposal || acceptedByRequest.has(req)) continue;
+    acceptedByRequest.add(req);
+    acceptedWords.push(String(proposal.record.word));
+    lastContributor = proposal.message.from;
   }
 
   return { version, stateHash, line, complete, lastContributor, acceptedWords, receipts };
