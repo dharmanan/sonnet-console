@@ -334,10 +334,29 @@ function localPrivateWorkspacePath(gameId) {
   );
 }
 
+const CANONICAL_TEAM_ROSTERS = new Map([
+  [
+    'kohen-sonnet',
+    [
+      'did:key:z6Mkn7LCcVgptpXz141Fk58UUhfho77Toer96cfqf3wVVxE4',
+      'did:key:z6MkqfXdajyL1TDEhunq3xuQMfembaa4apiErvPxQQz3wtSg',
+      'did:key:z6MkoqwwuoAVWbWpcirCfCRxCaMQTFvDrwrFCxaquXWXdm5G',
+      'did:key:z6MkejoBvUkYrccxz3MACYVBkCSqzoAU5AzztrVsgxZNE1Mt'
+    ]
+  ]
+]);
+
+function canonicalTeamRoster(gameId) {
+  return [
+    ...(CANONICAL_TEAM_ROSTERS.get(gameId) || [])
+  ];
+}
+
 function emptyPrivateWorkspace(gameId) {
   return {
     version: 1,
     gameId,
+    members: canonicalTeamRoster(gameId),
     chat: [],
     draft: '',
     draftUpdatedBy: '',
@@ -370,9 +389,33 @@ function normalizePrivateWorkspace(value, gameId) {
         .slice(-200)
     : [];
 
+  const canonicalMembers =
+    canonicalTeamRoster(gameId);
+
+  const storedMembers =
+    Array.isArray(source.members)
+      ? source.members
+          .map((did) => String(did || ''))
+          .filter((did) => DID_RE.test(did))
+      : [];
+
+  const uniqueStoredMembers =
+    [...new Set(storedMembers)];
+
+  const members =
+    canonicalMembers.length
+      ? canonicalMembers
+      : (
+          uniqueStoredMembers.length >= 4 &&
+          uniqueStoredMembers.length <= 8
+            ? uniqueStoredMembers
+            : []
+        );
+
   return {
     version: 1,
     gameId,
+    members,
     chat,
     draft:
       typeof source.draft === 'string'

@@ -141,6 +141,21 @@ function applySharedPrivateWorkspace(workspace) {
     typeof workspace !== 'object'
   ) return;
 
+  if (Array.isArray(workspace.members)) {
+    const members = workspace.members
+      .map((did) => String(did || ''))
+      .filter((did) => DID_RE.test(did));
+
+    if (
+      members.length >= 4 &&
+      members.length <= 8 &&
+      new Set(members).size === members.length
+    ) {
+      state.team.members = [...members];
+      saveTeam();
+    }
+  }
+
   state.privateChatMessages =
     Array.isArray(workspace.chat)
       ? workspace.chat.map((message) => ({
@@ -1019,6 +1034,10 @@ function setGameId() {
 
   saveTeam();
   render();
+
+  void refreshPrivateWorkspace({
+    quiet: false
+  }).then(() => refreshAll());
 }
 
 
