@@ -1997,10 +1997,7 @@ function renderWorkspace() {
     !preview
   );
 
-  $('#previewWordTest').classList.toggle(
-    'hidden',
-    !preview
-  );
+
   $('#teamRoom').textContent = teamRoom(state.team.gameId);
   $('#version').textContent = String(state.current.version || 0);
   $('#line').textContent = `${state.current.line || 1} / 14`;
@@ -2098,8 +2095,6 @@ function bind() {
   $('#signRoster').addEventListener('click', signRoster);
   $('#word').addEventListener('input', validateWord);
   $('#sendWord').addEventListener('click', sendWord);
-  $('#previewWordTest').addEventListener('click', previewWordTest);
-  $('#resetPreviewData').addEventListener('click', resetPreviewTestData);
   $('#planningSend').addEventListener('click', sendPlanningMessage);
 
   $('#uploadPoemDraft').addEventListener('click', () => {
