@@ -278,6 +278,19 @@ function cleanRoom(value) {
   return room;
 }
 
+// Technocore bazı istemcilerde 64-bit nonce kullanıyor.
+// JSON.parse bunları Number'a çevirirse 2^53 üstünde hassasiyet kaybolur
+// ve Ed25519 canonical message doğrulaması bozulur.
+// Export satırındaki dış nonce'u string olarak koru.
+function parseTechnocoreExportLine(line) {
+  const normalized = String(line).replace(
+    /,"nonce":([0-9]+),"sig":/g,
+    ',"nonce":"$1","sig":'
+  );
+
+  return JSON.parse(normalized);
+}
+
 async function readRoom(url, res, room) {
   const searches = url.searchParams.getAll('search').map((v) => v.trim()).filter(Boolean);
   if (searches.length) {
@@ -288,7 +301,7 @@ async function readRoom(url, res, room) {
     const messages = [];
     for (const line of text.split('\n')) {
       if (!line || !searches.some((s) => line.includes(s))) continue;
-      try { messages.push(JSON.parse(line)); } catch { /* ignore malformed retained line */ }
+      try { messages.push(parseTechnocoreExportLine(line)); } catch { /* ignore malformed retained line */ }
     }
     return json(res, 200, { ok: true, room, generation: Number(upstream.headers.get('x-room-generation') || 0), messages: messages.slice(-1200) });
   }
@@ -476,7 +489,7 @@ async function readOfficialContestTeamCount() {
     let message;
 
     try {
-      message = JSON.parse(line);
+      message = parseTechnocoreExportLine(line);
     } catch {
       continue;
     }
@@ -527,7 +540,7 @@ async function inspectContestTeamRoom(room) {
     let message;
 
     try {
-      message = JSON.parse(line);
+      message = parseTechnocoreExportLine(line);
     } catch {
       continue;
     }

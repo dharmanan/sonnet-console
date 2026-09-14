@@ -845,6 +845,10 @@ async function refreshDiscovery() {
   let nextSetupProof = null;
   let nextGeneration = 0;
   let nextRosterReady = false;
+  let rosterReadyReceipt = null;
+
+  const verifiedRosterRequestIds = new Set();
+  const acceptedRosterMembers = new Set();
 
   const room = await readRoom(
     ROOMS.discovery,
@@ -1029,6 +1033,8 @@ async function refreshDiscovery() {
 
       const reqId = String(record.request_id);
 
+      verifiedRosterRequestIds.add(reqId);
+
       let receipt = [...receipts]
         .reverse()
         .find(
@@ -1057,6 +1063,25 @@ async function refreshDiscovery() {
         receipt
           ? receiptStatus(receipt.record)
           : 'pending';
+
+      if (
+        receipt &&
+        officialStatus === 'accepted' &&
+        receipt.record.roster_ready === true
+      ) {
+        rosterReadyReceipt = receipt;
+      }
+
+      if (officialStatus === 'accepted') {
+        acceptedRosterMembers.add(message.from);
+      }
+
+      if (
+        acceptedRosterMembers.has(message.from) &&
+        officialStatus !== 'accepted'
+      ) {
+        continue;
+      }
 
       const reason =
         receipt
@@ -1098,10 +1123,31 @@ async function refreshDiscovery() {
   const rosterMatches = ({ record }) => {
     if (
       !nextSetupVerified ||
-      deepFind(record, ['game_id']) !== state.team.gameId ||
       receiptStatus(record) !== 'accepted' ||
       record.roster_ready !== true
     ) return false;
+
+    const receiptGameId =
+      deepFind(record, ['game_id']);
+
+    const receiptRequestId =
+      String(
+        deepFind(record, ['request_id']) || ''
+      );
+
+    if (
+      receiptGameId &&
+      receiptGameId !== state.team.gameId
+    ) {
+      return false;
+    }
+
+    if (
+      !receiptGameId &&
+      !verifiedRosterRequestIds.has(receiptRequestId)
+    ) {
+      return false;
+    }
 
     const assigned = deepFind(
       record,
@@ -1127,9 +1173,11 @@ async function refreshDiscovery() {
     return true;
   };
 
-  let ready = [...receipts]
-    .reverse()
-    .find(rosterMatches);
+  let ready =
+    rosterReadyReceipt ||
+    [...receipts]
+      .reverse()
+      .find(rosterMatches);
 
   if (ready) {
     saveTeamProof('roster-ready', ready.message);
@@ -1167,7 +1215,7 @@ async function refreshTeamRoom() {
 
   const room = await readRoom(
     roomName,
-    state.team.gameId
+    [state.team.gameId, REFEREE_DID]
   );
 
   state.teamMessages = room.messages || [];
@@ -1176,6 +1224,100 @@ async function refreshTeamRoom() {
     state.teamMessages,
     roomName
   );
+
+  // Hakemin takım odasına yazdığı roster_ready:true receipt'i,
+  // discovery'deki ilgili imzalı roster mesajıyla eşleştir.
+  // Böylece game_id içermeyen resmi ready receipt'i kaybolmaz.
+  const roomReceipts = await verifiedReceipts(
+    roomName,
+    state.teamMessages
+  );
+
+  const readyReceipt = [...roomReceipts]
+    .reverse()
+    .find(({ record }) =>
+      receiptStatus(record) === 'accepted' &&
+      record.roster_ready === true
+    );
+
+  if (readyReceipt) {
+    const readyRequestId = String(
+      deepFind(
+        readyReceipt.record,
+        ['request_id']
+      ) || ''
+    );
+
+    const readySenderDid = String(
+      deepFind(
+        readyReceipt.record,
+        ['sender_did']
+      ) || ''
+    );
+
+    if (
+      readyRequestId &&
+      state.team.members.includes(readySenderDid)
+    ) {
+      let matchingRosterMessage = null;
+
+      for (const message of state.discoveryMessages) {
+        const record = parseRecord(message?.text);
+
+        if (
+          message?.from !== readySenderDid ||
+          record?.type !== 'sonnet.roster.v1' ||
+          record?.contest_id !== CONTEST.id ||
+          record?.game_id !== state.team.gameId ||
+          record?.poem_room !== roomName ||
+          Number(record?.room_generation) !==
+            Number(state.team.generation) ||
+          String(record?.request_id || '') !==
+            readyRequestId ||
+          !Array.isArray(record?.members) ||
+          record.members.length !==
+            state.team.members.length ||
+          !record.members.every(
+            (did, index) =>
+              did === state.team.members[index]
+          )
+        ) {
+          continue;
+        }
+
+        if (
+          await verifyRoomMessage(
+            ROOMS.discovery,
+            message
+          )
+        ) {
+          matchingRosterMessage = message;
+          break;
+        }
+      }
+
+      if (matchingRosterMessage) {
+        state.rosterReady = true;
+
+        state.rosterSignatures.set(
+          readySenderDid,
+          {
+            status: 'accepted',
+            requestId: readyRequestId,
+            reason: '',
+            messageSeq:
+              matchingRosterMessage.seq ??
+              matchingRosterMessage.room_seq ??
+              '',
+            receiptSeq:
+              readyReceipt.message?.seq ??
+              readyReceipt.message?.room_seq ??
+              ''
+          }
+        );
+      }
+    }
+  }
 
   await rebuildPoem();
 }
