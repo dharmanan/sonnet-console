@@ -367,3 +367,51 @@ label input { margin-top:7px; }
     background:#1d3322;
   }
 }
+
+
+/* Contest status */
+.contest-status-grid {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+  margin-top:18px;
+}
+
+.contest-status-grid > div {
+  border:1px solid #dedfd7;
+  background:#fafaf7;
+  border-radius:14px;
+  padding:14px;
+}
+
+.contest-status-grid span {
+  display:block;
+  font-size:11px;
+  color:#7c7d75;
+  margin-bottom:7px;
+}
+
+.contest-status-grid strong {
+  display:block;
+  font-size:30px;
+  letter-spacing:-.04em;
+}
+
+@media (max-width:820px) {
+  .contest-status-grid {
+    grid-template-columns:1fr 1fr;
+  }
+}
+
+@media (max-width:520px) {
+  .contest-status-grid {
+    grid-template-columns:1fr;
+  }
+}
+
+@media (prefers-color-scheme:dark) {
+  .contest-status-grid > div {
+    background:#171814;
+    border-color:#35362f;
+  }
+}

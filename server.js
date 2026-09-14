@@ -19,7 +19,14 @@ const AUTH_MAX_AGE = 12 * 60 * 60;
 const IS_VERCEL = Boolean(process.env.VERCEL);
 const ROOM_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const DID_RE = /^did:key:z6Mk[1-9A-HJ-NP-Za-km-z]{44}$/;
+const REFEREE_DID = 'did:key:z6MkowHQwsx9xr84WbWN3YCnKutyBnBXkT1ChKY4uEAAMzte';
+const CONTEST_STATUS_TTL_MS = 5 * 60 * 1000;
+
 let dictionaryCache = null;
+let contestStatusCache = null;
+let contestStatusExpiresAt = 0;
+let contestStatusPromise = null;
+const publicKeyCache = new Map();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -318,6 +325,391 @@ async function writeRoom(req, res, room) {
   let data = upstreamText;
   try { data = JSON.parse(upstreamText); } catch { /* keep text */ }
   return json(res, upstream.ok ? 200 : upstream.status, { ok: upstream.ok, data: upstream.ok ? data : undefined, error: upstream.ok ? undefined : data });
+}
+
+
+const BASE58_ALPHABET =
+  '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+const BASE58_INDEX = new Map(
+  [...BASE58_ALPHABET].map((c, i) => [c, i])
+);
+
+function decodeBase58(value) {
+  let n = 0n;
+
+  for (const c of String(value || '')) {
+    const d = BASE58_INDEX.get(c);
+    if (d == null) throw new Error('invalid_base58');
+    n = n * 58n + BigInt(d);
+  }
+
+  let hex = n.toString(16);
+  if (hex.length % 2) hex = `0${hex}`;
+
+  let bytes = hex
+    ? Uint8Array.from(
+        hex.match(/../g).map((pair) => parseInt(pair, 16))
+      )
+    : new Uint8Array();
+
+  const input = String(value || '');
+  const leading =
+    input.length - input.replace(/^1+/, '').length;
+
+  if (leading) {
+    bytes = new Uint8Array([
+      ...new Uint8Array(leading),
+      ...bytes
+    ]);
+  }
+
+  return bytes;
+}
+
+async function publicKeyFromDid(did) {
+  if (!DID_RE.test(did)) {
+    throw new Error('invalid_did');
+  }
+
+  if (publicKeyCache.has(did)) {
+    return publicKeyCache.get(did);
+  }
+
+  const decoded =
+    decodeBase58(did.slice('did:key:z'.length));
+
+  if (
+    decoded.length !== 34 ||
+    decoded[0] !== 0xed ||
+    decoded[1] !== 0x01
+  ) {
+    throw new Error('unsupported_did');
+  }
+
+  const key = await crypto.webcrypto.subtle.importKey(
+    'raw',
+    decoded.slice(2),
+    { name: 'Ed25519' },
+    false,
+    ['verify']
+  );
+
+  publicKeyCache.set(did, key);
+  return key;
+}
+
+async function verifyTechnocoreMessage(room, message) {
+  if (
+    !message?.from ||
+    !message?.sig ||
+    message?.nonce == null ||
+    typeof message?.text !== 'string'
+  ) {
+    return false;
+  }
+
+  try {
+    const key = await publicKeyFromDid(message.from);
+
+    const canonical =
+      `${room}|${message.nonce}|${message.text}`;
+
+    return await crypto.webcrypto.subtle.verify(
+      'Ed25519',
+      key,
+      Buffer.from(message.sig, 'base64url'),
+      new TextEncoder().encode(canonical)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseJsonObject(text) {
+  try {
+    const value = JSON.parse(text);
+
+    return (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value)
+    )
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchRoomExport(room) {
+  const response = await fetchTimed(
+    `${TECHNOCORE}/r/${encodeURIComponent(room)}/export`
+  );
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `room_export_${room}_${response.status}`
+    );
+  }
+
+  return {
+    text,
+    generation:
+      Number(
+        response.headers.get('x-room-generation') || 0
+      )
+  };
+}
+
+async function readOfficialContestTeamCount() {
+  const room = 'd-sonnet-2-rules';
+  const { text } = await fetchRoomExport(room);
+
+  let latest = null;
+
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+
+    let message;
+
+    try {
+      message = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (message.from !== REFEREE_DID) continue;
+
+    if (
+      !(await verifyTechnocoreMessage(room, message))
+    ) {
+      continue;
+    }
+
+    const record = parseJsonObject(message.text);
+
+    if (
+      record?.type === 'sonnet.notice.v1' &&
+      record?.subject === 'referee status' &&
+      Number.isSafeInteger(Number(record.teams))
+    ) {
+      latest = {
+        teams: Number(record.teams),
+        seq:
+          message.seq ??
+          message.room_seq ??
+          null,
+        ts: message.ts || ''
+      };
+    }
+  }
+
+  if (!latest) {
+    throw new Error('official_team_status_unavailable');
+  }
+
+  return latest;
+}
+
+async function inspectContestTeamRoom(room) {
+  const { text, generation } =
+    await fetchRoomExport(room);
+
+  const proposals = new Map();
+  const receipts = [];
+
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+
+    let message;
+
+    try {
+      message = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    const record =
+      parseJsonObject(message.text);
+
+    if (!record) continue;
+
+    if (
+      record.type === 'sonnet.word.v1' &&
+      record.contest_id === 'sonnet-2' &&
+      record.request_id &&
+      Number(record.room_generation) === generation &&
+      await verifyTechnocoreMessage(room, message)
+    ) {
+      proposals.set(
+        String(record.request_id),
+        record
+      );
+    }
+
+    if (
+      message.from === REFEREE_DID &&
+      record.type === 'sonnet.receipt.v1' &&
+      record.contest_id === 'sonnet-2' &&
+      record.status === 'accepted' &&
+      await verifyTechnocoreMessage(room, message)
+    ) {
+      receipts.push(record);
+    }
+  }
+
+  let acceptedWords = 0;
+  let complete = false;
+
+  for (const receipt of receipts) {
+    const requestId =
+      String(
+        receipt.for_request_id ||
+        receipt.request_id ||
+        ''
+      );
+
+    if (!proposals.has(requestId)) continue;
+
+    acceptedWords += 1;
+
+    if (receipt.complete === true) {
+      complete = true;
+    }
+  }
+
+  return {
+    started: acceptedWords > 0,
+    complete
+  };
+}
+
+async function buildContestStatus() {
+  const [
+    official,
+    allowResponse
+  ] = await Promise.all([
+    readOfficialContestTeamCount(),
+    fetchTimed(`${TECHNOCORE}/kv/room-allow`)
+  ]);
+
+  const allowText =
+    await allowResponse.text();
+
+  if (!allowResponse.ok) {
+    throw new Error(
+      `room_allow_${allowResponse.status}`
+    );
+  }
+
+  const rooms = allowText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) =>
+      line.startsWith(
+        '/kv/room-allow/d-sonnet-2-team-'
+      )
+    )
+    .map((line) =>
+      line.replace('/kv/room-allow/', '')
+    );
+
+  const queue = [...rooms];
+  const results = [];
+
+  const workers = Array.from(
+    { length: 6 },
+    async () => {
+      while (queue.length) {
+        const room = queue.shift();
+        if (!room) continue;
+
+        try {
+          results.push({
+            room,
+            ...(await inspectContestTeamRoom(room))
+          });
+        } catch (error) {
+          results.push({
+            room,
+            error: String(error)
+          });
+        }
+      }
+    }
+  );
+
+  await Promise.all(workers);
+
+  const errors =
+    results.filter((item) => item.error);
+
+  return {
+    ok: true,
+    fetchedAt: new Date().toISOString(),
+    officialTeams: official.teams,
+    officialStatusSeq: official.seq,
+    officialStatusAt: official.ts,
+    roomsOpened: rooms.length,
+    started:
+      results.filter((item) => item.started).length,
+    completed:
+      results.filter((item) => item.complete).length,
+    errors: errors.length
+  };
+}
+
+async function getContestStatus() {
+  const now = Date.now();
+
+  if (
+    contestStatusCache &&
+    now < contestStatusExpiresAt
+  ) {
+    return contestStatusCache;
+  }
+
+  if (contestStatusPromise) {
+    return contestStatusPromise;
+  }
+
+  contestStatusPromise =
+    buildContestStatus()
+      .then((value) => {
+        contestStatusCache = value;
+        contestStatusExpiresAt =
+          Date.now() + CONTEST_STATUS_TTL_MS;
+
+        return value;
+      })
+      .finally(() => {
+        contestStatusPromise = null;
+      });
+
+  return contestStatusPromise;
+}
+
+async function contestStatus(res) {
+  try {
+    return json(
+      res,
+      200,
+      await getContestStatus()
+    );
+  } catch (error) {
+    return json(
+      res,
+      502,
+      {
+        ok: false,
+        error: 'contest_status_unavailable',
+        detail: String(error)
+      }
+    );
+  }
 }
 
 
@@ -938,6 +1330,7 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true, contest: 'sonnet-2', technocore: TECHNOCORE, dictionarySha256: CMUDICT_SHA256 });
+    if (req.method === 'GET' && url.pathname === '/api/contest-status') return contestStatus(res);
     if (req.method === 'GET' && url.pathname === '/api/dictionary') return dictionary(res);
     const match = url.pathname.match(/^\/api\/rooms\/([a-z0-9_-]+)$/);
     if (match) {

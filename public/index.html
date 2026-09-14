@@ -19,6 +19,40 @@
       <button id="refresh" class="ghost" type="button">Yenile</button>
     </header>
 
+    <section id="contestStatusPanel" class="card contest-status-card">
+      <div class="card-head">
+        <div>
+          <span class="step">LIVE</span>
+          <h2>Yarışma durumu</h2>
+          <p class="muted">Yalnızca kriptografik olarak doğrulanmış hakem kayıtları ve güncel Technocore takım odaları kullanılır.</p>
+        </div>
+        <span id="contestStatusBadge" class="badge pending">YÜKLENİYOR</span>
+      </div>
+
+      <div class="contest-status-grid">
+        <div>
+          <span>Resmî takım</span>
+          <strong id="contestOfficialTeams">—</strong>
+        </div>
+        <div>
+          <span>Takım odası</span>
+          <strong id="contestRoomsOpened">—</strong>
+        </div>
+        <div>
+          <span>Şiire başlamış</span>
+          <strong id="contestStarted">—</strong>
+        </div>
+        <div>
+          <span>Şiiri tamamlamış</span>
+          <strong id="contestCompleted">—</strong>
+        </div>
+      </div>
+
+      <p id="contestStatusNote" class="muted">
+        Güncel yarışma verileri alınıyor.
+      </p>
+    </section>
+
     <section id="connectPanel" class="card connect-card">
       <div>
         <span class="step">01</span>
@@ -197,6 +231,56 @@
             <p class="muted">Buton yalnızca kelime DID harflerinle uyumluysa, sabit CMUdict sözlüğünde bulunuyorsa, 10 hecelik dize sınırına sığıyorsa ve son kabul edilen yazan kişi sen değilsen açılır.</p>
           </section>
         </div>
+
+        <section id="manualWordPanel" class="card">
+          <div class="card-head">
+            <div>
+              <h2>Sıradaki manuel gönderim</h2>
+              <p class="muted">Console kullanmayan takım üyesine, güncel şiir state'i ile hazırlanmış tek satırlık sonnet.word.v1 JSON'u ver.</p>
+            </div>
+            <span id="manualWordStatus" class="badge pending">BEKLEMEDE</span>
+          </div>
+
+          <div class="metrics">
+            <div>
+              <span>Sıra</span>
+              <strong id="manualWordOrder">—</strong>
+            </div>
+            <div>
+              <span>Kelime</span>
+              <strong id="manualWordValue">—</strong>
+            </div>
+            <div>
+              <span>Gönderecek</span>
+              <strong id="manualWordWriter">—</strong>
+            </div>
+            <div>
+              <span>Version</span>
+              <strong id="manualWordVersion">—</strong>
+            </div>
+          </div>
+
+          <div class="state-box">
+            <span>Gönderecek DID</span>
+            <code id="manualWordDid">—</code>
+          </div>
+
+          <div class="state-box">
+            <span>Güncel previous_state_hash</span>
+            <code id="manualWordHash">—</code>
+          </div>
+
+          <div class="state-box">
+            <span>Gönderilecek JSON</span>
+            <code id="manualWordJson">Önce roster ve canlı state doğrulanmalı.</code>
+          </div>
+
+          <div class="actions">
+            <button id="copyManualWordJson" class="secondary" type="button" disabled>Güncel JSON'u kopyala</button>
+          </div>
+
+          <p id="manualWordNote" class="muted"></p>
+        </section>
 
         <section class="card draft-card">
           <div class="card-head">

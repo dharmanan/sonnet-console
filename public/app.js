@@ -33,6 +33,8 @@ const state = {
 
 
 let historicalWriterEvidencePromise = null;
+let contestStatusData = null;
+let contestStatusBusy = false;
 
 async function historicalWriterEvidenceFor(did) {
   try {
@@ -86,6 +88,26 @@ const WRITER_NAMES = new Map([
   ['did:key:z6MkejoBvUkYrccxz3MACYVBkCSqzoAU5AzztrVsgxZNE1Mt', 'Sekuler']
 ]);
 
+const MANUAL_SENDER_SEQUENCE =
+  'KMESMEMSKMSMKEMKESESKESMEKSKEMKEKEKMEMESKEMEKSESKEKMKSMSESMSKESMKEMSKMSMSEMSMEMSMKEKESKSESKEMEKMSEKMSKSMKSKMEK';
+
+const MANUAL_WRITER_BY_CODE = Object.freeze({
+  K: 'Kohen',
+  E: 'Echo',
+  M: 'memosr',
+  S: 'Sekuler'
+});
+
+let manualWordPayload = null;
+
+function didForWriterName(name) {
+  for (const [did, writer] of WRITER_NAMES) {
+    if (writer === name) return did;
+  }
+
+  return '';
+}
+
 function writerName(did) {
   return WRITER_NAMES.get(did) || 'Yazar';
 }
@@ -102,6 +124,82 @@ function toast(message, tone = '') {
   toast.timer = setTimeout(() => { box.className = 'toast'; }, 4200);
 }
 
+
+
+function renderContestStatus() {
+  const badge = $('#contestStatusBadge');
+
+  if (!badge) return;
+
+  if (contestStatusBusy && !contestStatusData) {
+    badge.textContent = 'YÜKLENİYOR';
+    badge.className = 'badge pending';
+  } else if (contestStatusData?.ok) {
+    badge.textContent = 'GÜNCEL';
+    badge.className = 'badge accepted';
+  } else {
+    badge.textContent = 'VERİ YOK';
+    badge.className = 'badge rejected';
+  }
+
+  $('#contestOfficialTeams').textContent =
+    contestStatusData?.officialTeams ?? '—';
+
+  $('#contestRoomsOpened').textContent =
+    contestStatusData?.roomsOpened ?? '—';
+
+  $('#contestStarted').textContent =
+    contestStatusData?.started ?? '—';
+
+  $('#contestCompleted').textContent =
+    contestStatusData?.completed ?? '—';
+
+  if (contestStatusData?.ok) {
+    const time =
+      contestStatusData.fetchedAt
+        ? new Date(
+            contestStatusData.fetchedAt
+          ).toLocaleTimeString('tr-TR')
+        : '—';
+
+    $('#contestStatusNote').textContent =
+      `Son tarama: ${time} · ` +
+      `Hakem status seq: ${contestStatusData.officialStatusSeq ?? '—'} · ` +
+      `${contestStatusData.errors || 0} oda okuma hatası. ` +
+      `“Şiiri tamamlamış”, complete:true durumudur; final submission onayı anlamına gelmez.`;
+  } else {
+    $('#contestStatusNote').textContent =
+      'Güncel yarışma verileri henüz alınamadı.';
+  }
+}
+
+async function refreshContestStatus({
+  quiet = true
+} = {}) {
+  if (contestStatusBusy) return;
+
+  contestStatusBusy = true;
+  renderContestStatus();
+
+  try {
+    contestStatusData =
+      await api('/api/contest-status');
+
+    renderContestStatus();
+  } catch (error) {
+    if (!quiet) {
+      toast(
+        'Yarışma durumu alınamadı.',
+        'bad'
+      );
+    }
+
+    renderContestStatus();
+  } finally {
+    contestStatusBusy = false;
+    renderContestStatus();
+  }
+}
 
 function privateChatKey() {
   return `sonnet-console-private-chat:${state.team?.gameId || 'no-team'}`;
@@ -498,8 +596,21 @@ async function connectPrivateKey() {
     $('#privateKey').value = '';
     if (!state.team.members.length) state.team.members = [state.did];
     saveTeam();
+
+    // Kimliği hemen göster; ağ tabanlı doğrulamaları ardından tamamla.
+    render();
+
+    toast(
+      'DID connected. Durum kontrolleri yükleniyor…',
+      'ok'
+    );
+
     await refreshAll();
-    toast('DID connected. Private key remains only in this browser tab.', 'ok');
+
+    toast(
+      'DID connected. Private key remains only in this browser tab.',
+      'ok'
+    );
   } catch (error) {
     toast(error.message, 'bad');
   } finally {
@@ -709,9 +820,14 @@ async function memberRegistrationStatus(did) {
 }
 
 async function refreshMembers() {
-  const map = new Map();
-  for (const did of state.team.members) map.set(did, await memberRegistrationStatus(did));
-  state.memberStatuses = map;
+  const entries = await Promise.all(
+    state.team.members.map(async (did) => [
+      did,
+      await memberRegistrationStatus(did)
+    ])
+  );
+
+  state.memberStatuses = new Map(entries);
 }
 
 
@@ -1066,11 +1182,24 @@ async function refreshTeamRoom() {
 
 async function refreshAll() {
   if (!state.did) return render();
+
   try {
-    await refreshRegistration();
-    await refreshMembers();
+    const registrationPromise = refreshRegistration();
+    const membersPromise = refreshMembers();
+
+    // Takım/roster durumu kayıt kontrollerini beklemesin.
     await refreshDiscovery();
     await refreshTeamRoom();
+
+    // Kritik yarışma durumunu mümkün olan en kısa sürede göster.
+    render();
+
+    // Kayıt etiketleri bağımsız olarak arkadan tamamlanır.
+    await Promise.all([
+      registrationPromise,
+      membersPromise
+    ]);
+
     render();
   } catch (error) {
     toast(error.message, 'bad');
@@ -2221,7 +2350,312 @@ function renderTeam() {
     }`;
 }
 
+function manualDraftWords() {
+  return String(loadPoemDraft() || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function manualWordStep() {
+  const version = Number(state.current.version || 0);
+  const words = manualDraftWords();
+
+  if (state.current.complete === true || version >= MANUAL_SENDER_SEQUENCE.length) {
+    return {
+      complete: true,
+      ok: false,
+      version,
+      words
+    };
+  }
+
+  if (
+    !Number.isInteger(version) ||
+    version < 0 ||
+    version >= MANUAL_SENDER_SEQUENCE.length
+  ) {
+    return {
+      ok: false,
+      reason: 'Canlı şiir version değeri geçersiz.',
+      version,
+      words
+    };
+  }
+
+  if (words.length !== MANUAL_SENDER_SEQUENCE.length) {
+    return {
+      ok: false,
+      reason: `TXT taslağında ${words.length} kelime var; beklenen 110.`,
+      version,
+      words
+    };
+  }
+
+  const acceptedWords =
+    Array.isArray(state.current.acceptedWords)
+      ? state.current.acceptedWords
+      : [];
+
+  if (acceptedWords.length !== version) {
+    return {
+      ok: false,
+      reason:
+        `Canlı state ile kabul edilen kelime geçmişi uyuşmuyor ` +
+        `(${acceptedWords.length} / version ${version}). JSON üretme.`,
+      version,
+      words
+    };
+  }
+
+  for (let i = 0; i < acceptedWords.length; i += 1) {
+    if (bareWord(acceptedWords[i]) !== bareWord(words[i])) {
+      return {
+        ok: false,
+        reason:
+          `TXT taslağı canlı şiirle ${i + 1}. kelimede ayrışıyor. JSON üretme.`,
+        version,
+        words
+      };
+    }
+  }
+
+  const senderCode = MANUAL_SENDER_SEQUENCE[version];
+  const writer = MANUAL_WRITER_BY_CODE[senderCode];
+  const did = didForWriterName(writer);
+  const word = words[version];
+
+  if (!writer || !did || !word) {
+    return {
+      ok: false,
+      reason: 'Sıradaki kelime veya gönderen belirlenemedi.',
+      version,
+      words
+    };
+  }
+
+  if (!didAllowsWord(did, word)) {
+    return {
+      ok: false,
+      reason:
+        `${writer} DID'i "${word}" kelimesinin tüm harflerini karşılamıyor. JSON üretme.`,
+      version,
+      words
+    };
+  }
+
+  if (
+    version > 0 &&
+    MANUAL_SENDER_SEQUENCE[version - 1] === senderCode
+  ) {
+    return {
+      ok: false,
+      reason: 'Aynı yazar art arda iki turda görünüyor. JSON üretme.',
+      version,
+      words
+    };
+  }
+
+  return {
+    ok: true,
+    complete: false,
+    number: version + 1,
+    version,
+    word,
+    writer,
+    did,
+    words
+  };
+}
+
+function renderManualWord() {
+  const panel = $('#manualWordPanel');
+  if (!panel) return;
+
+  const status = $('#manualWordStatus');
+  const copyButton = $('#copyManualWordJson');
+  const step = manualWordStep();
+
+  $('#manualWordOrder').textContent =
+    step.complete
+      ? '110 / 110'
+      : step.number
+        ? `${String(step.number).padStart(3, '0')} / 110`
+        : '—';
+
+  $('#manualWordValue').textContent =
+    step.word || '—';
+
+  $('#manualWordWriter').textContent =
+    step.writer || '—';
+
+  $('#manualWordDid').textContent =
+    step.did || '—';
+
+  $('#manualWordVersion').textContent =
+    Number.isInteger(step.version)
+      ? String(step.version)
+      : '—';
+
+  $('#manualWordHash').textContent =
+    state.current.stateHash || '—';
+
+  if (step.complete) {
+    status.textContent = 'TAMAMLANDI';
+    status.className = 'badge accepted';
+    copyButton.disabled = true;
+    $('#manualWordJson').textContent =
+      'Şiir tamamlandı.';
+    $('#manualWordNote').textContent =
+      'Yeni kelime gönderilmemeli.';
+    manualWordPayload = null;
+    return;
+  }
+
+  const hashReady =
+    /^[a-f0-9]{64}$/i.test(
+      String(state.current.stateHash || '')
+    );
+
+  const ready =
+    state.setupVerified &&
+    state.rosterReady &&
+    step.ok &&
+    hashReady &&
+    !state.current.complete;
+
+  if (!state.rosterReady) {
+    status.textContent = 'ROSTER BEKLENİYOR';
+    status.className = 'badge pending';
+  } else if (!step.ok || !hashReady) {
+    status.textContent = 'KİLİTLİ';
+    status.className = 'badge rejected';
+  } else {
+    status.textContent = 'HAZIR';
+    status.className = 'badge accepted';
+  }
+
+  copyButton.disabled = !ready;
+
+  const payloadStillCurrent =
+    manualWordPayload &&
+    manualWordPayload.version === step.version &&
+    manualWordPayload.stateHash === state.current.stateHash &&
+    manualWordPayload.word === step.word &&
+    manualWordPayload.did === step.did;
+
+  if (!payloadStillCurrent) {
+    manualWordPayload = null;
+
+    $('#manualWordJson').textContent =
+      ready
+        ? 'Güncel JSON oluşturmak için butona bas.'
+        : 'JSON henüz üretilemez.';
+  } else {
+    $('#manualWordJson').textContent =
+      manualWordPayload.text;
+  }
+
+  if (!state.rosterReady) {
+    $('#manualWordNote').textContent =
+      'Önce 4/4 ve doğrulanmış roster_ready:true beklenmeli.';
+    return;
+  }
+
+  if (!step.ok) {
+    $('#manualWordNote').textContent =
+      step.reason || 'Plan doğrulanamadı.';
+    return;
+  }
+
+  if (!hashReady) {
+    $('#manualWordNote').textContent =
+      'Hakemin doğrulanmış güncel state hash’i henüz hazır değil.';
+    return;
+  }
+
+  if (state.did === step.did) {
+    $('#manualWordNote').textContent =
+      `${step.writer} DID'i şu anda Console'a bağlı. ` +
+      `Bu kişi isterse yukarıdaki normal "Kelimeyi gönder" akışını kullanabilir.`;
+  } else {
+    $('#manualWordNote').textContent =
+      `Bu JSON yalnızca ${step.writer} (${shortDid(step.did)}) ` +
+      `tarafından kendi Technocore oturumundan gönderilmeli. ` +
+      `Bir önceki tur ACCEPTED olmadan gönderme.`;
+  }
+}
+
+async function copyManualWordJson() {
+  try {
+    const step = manualWordStep();
+
+    if (!state.setupVerified || !state.rosterReady) {
+      throw new Error(
+        'Roster henüz doğrulanmış şekilde hazır değil.'
+      );
+    }
+
+    if (!step.ok || step.complete) {
+      throw new Error(
+        step.reason ||
+        'Sıradaki manuel kelime üretilemedi.'
+      );
+    }
+
+    if (
+      !/^[a-f0-9]{64}$/i.test(
+        String(state.current.stateHash || '')
+      )
+    ) {
+      throw new Error(
+        'Güncel previous_state_hash hazır değil.'
+      );
+    }
+
+    const record = wordRecord(
+      state.team.gameId,
+      state.team.generation,
+      state.current.version,
+      state.current.stateHash,
+      step.word,
+      requestId(
+        `manual-${String(step.number).padStart(3, '0')}`
+      )
+    );
+
+    const text = compact(record);
+
+    manualWordPayload = {
+      text,
+      version: step.version,
+      stateHash: state.current.stateHash,
+      word: step.word,
+      did: step.did
+    };
+
+    renderManualWord();
+
+    try {
+      await navigator.clipboard.writeText(text);
+
+      toast(
+        `${String(step.number).padStart(3, '0')} ${step.word} — ` +
+        `${step.writer}: güncel JSON kopyalandı.`,
+        'ok'
+      );
+    } catch {
+      toast(
+        'JSON hazır. Panoya otomatik kopyalanamadı; kutudan elle kopyala.'
+      );
+    }
+  } catch (error) {
+    toast(error.message, 'bad');
+  }
+}
+
 function renderWorkspace() {
+  renderManualWord();
   const workspaceAvailable =
     state.setupVerified ||
     state.rosterReady;
@@ -2337,7 +2771,10 @@ function bind() {
   $('#connectButton').addEventListener('click', connectPrivateKey);
   $('#privateKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') connectPrivateKey(); });
   $('#disconnect').addEventListener('click', disconnect);
-  $('#refresh').addEventListener('click', refreshAll);
+  $('#refresh').addEventListener('click', () => {
+    void refreshContestStatus({ quiet: false });
+    void refreshAll();
+  });
   $('#registerWriter').addEventListener('click', registerWriter);
   $('#gameId').addEventListener('change', setGameId);
   $('#addMember').addEventListener('click', addMember);
@@ -2345,6 +2782,7 @@ function bind() {
   $('#signRoster').addEventListener('click', signRoster);
   $('#word').addEventListener('input', validateWord);
   $('#sendWord').addEventListener('click', sendWord);
+  $('#copyManualWordJson').addEventListener('click', copyManualWordJson);
   $('#planningSend').addEventListener('click', sendPlanningMessage);
 
   $('#uploadPoemDraft').addEventListener('click', () => {
@@ -2475,7 +2913,9 @@ function bind() {
 
 bind();
 render();
+void refreshContestStatus();
 setInterval(() => { if (state.did) refreshAll(); }, 15000);
+setInterval(() => { void refreshContestStatus(); }, 5 * 60 * 1000);
 
 
 const sonnetPrivateWorkspacePoll =
