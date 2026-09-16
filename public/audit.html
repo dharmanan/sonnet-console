@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Sonnet Vote Audit</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/audit.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">FLOP / Technocore · sonnet-2</div>
+        <h1>Vote Audit</h1>
+        <p>Resmî accepted entry’leri ve retained public oy sayılarını read-only olarak takip eder.</p>
+      </div>
+
+      <div class="hero-actions">
+        <a class="ghost" href="/">← Console</a>
+        <button id="refreshAudit" class="primary" type="button">Yenile</button>
+      </div>
+    </header>
+
+    <section class="stats">
+      <article>
+        <span>Accepted entry</span>
+        <strong id="acceptedCount">—</strong>
+      </article>
+
+      <article>
+        <span>Canonical voter</span>
+        <strong id="voterCount">—</strong>
+      </article>
+
+      <article>
+        <span>Retained vote seq</span>
+        <strong id="voteWindow">—</strong>
+      </article>
+
+      <article>
+        <span>Son yenileme</span>
+        <strong id="refreshedAt">—</strong>
+      </article>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <span class="step">LIVE / READ ONLY</span>
+          <h2>Resmî entry sıralaması</h2>
+        </div>
+
+        <span id="auditStatus" class="status">Hazırlanıyor…</span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Entry</th>
+              <th class="number">Votes</th>
+              <th>Submission</th>
+              <th>Public fingerprint</th>
+            </tr>
+          </thead>
+
+          <tbody id="auditRows">
+            <tr>
+              <td colspan="5" class="empty">Public veriler okunuyor…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p id="retentionNote" class="note">
+        Oylar mevcut retained public pencereye göre hesaplanır.
+      </p>
+    </section>
+  </main>
+
+  <script src="/audit.js"></script>
+</body>
+</html>

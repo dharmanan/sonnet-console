@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { get, put } from '@vercel/blob';
+import { buildAuditSnapshot } from './audit-snapshot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -1343,13 +1344,14 @@ export async function handler(req, res) {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true, contest: 'sonnet-2', technocore: TECHNOCORE, dictionarySha256: CMUDICT_SHA256 });
+    if (req.method === 'GET' && url.pathname === '/api/audit-snapshot') return json(res, 200, { ok: true, ...(await buildAuditSnapshot()) });
     if (req.method === 'GET' && url.pathname === '/api/contest-status') return contestStatus(res);
     if (req.method === 'GET' && url.pathname === '/api/dictionary') return dictionary(res);
     const match = url.pathname.match(/^\/api\/rooms\/([a-z0-9_-]+)$/);
     if (match) {
       const room = cleanRoom(match[1]);
-      if (req.method === 'GET') return readRoom(url, res, room);
-      if (req.method === 'POST') return writeRoom(req, res, room);
+      if (req.method === 'GET') return await readRoom(url, res, room);
+      if (req.method === 'POST') return await writeRoom(req, res, room);
     }
     if (req.method === 'GET') return staticFile(res, url.pathname);
     return json(res, 404, { ok: false, error: 'not_found' });

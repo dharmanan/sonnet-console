@@ -89,7 +89,7 @@ const WRITER_NAMES = new Map([
 ]);
 
 const MANUAL_SENDER_SEQUENCE =
-  'SEKMKEKEMSMKEKSESESKESMEKSKEKMKEKEKMEMESMKMKSKESMKEMKSMSEMKMKESMKEMESMSMESMSMKMSMKEKESKSESEMSEKMSESMSKSEMSKMSK';
+  'SEKMKEKEMSMKEKSESESKESMEKSKEKMKEKEKMEMESMKMKSKESMKEMKSMSEMKMKESMKEMESMSMESMSMKMSMKEKESKSESEMSEKMSMKEMEKMEKMKMEK';
 
 const MANUAL_WRITER_BY_CODE = Object.freeze({
   K: 'Kohen',
@@ -522,7 +522,17 @@ async function api(path, options = {}) {
   const response = await fetch(path, options);
   const text = await response.text();
   let payload;
-  try { payload = JSON.parse(text); } catch { throw new Error(`Unexpected local response (${response.status}).`); }
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    if (response.status === 504) {
+      throw new Error('upstream_timeout');
+    }
+
+    throw new Error(
+      `Unexpected local response (${response.status}).`
+    );
+  }
   if (!response.ok || payload.ok === false) throw new Error(typeof payload.error === 'string' ? payload.error : JSON.stringify(payload.error || payload));
   return payload;
 }
@@ -850,10 +860,20 @@ async function refreshDiscovery() {
   const verifiedRosterRequestIds = new Set();
   const acceptedRosterMembers = new Set();
 
-  const room = await readRoom(
-    ROOMS.discovery,
-    state.team.gameId
-  );
+  let room;
+
+  try {
+    room = await readRoom(
+      ROOMS.discovery,
+      state.team.gameId
+    );
+  } catch {
+    // Discovery geçici olarak erişilemezse daha önce doğrulanmış
+    // roster/setup durumunu yanlışlıkla sıfırlama.
+    // Team-room refresh kendi resmî roster_ready receipt'inden
+    // authoritative durumu geri kurabilir.
+    return;
+  }
 
   state.discoveryMessages = room.messages || [];
 
@@ -1191,6 +1211,48 @@ async function refreshDiscovery() {
 
   nextRosterReady = Boolean(ready);
 
+  // Roster-ready monotonic bir durumdur. Discovery geçmişi döngüsel
+  // veya geçici olarak eksik olduğunda daha önce doğrulanmış state'i
+  // false/unsigned durumuna düşürme.
+  if (
+    state.setupVerified &&
+    !nextSetupVerified
+  ) {
+    nextSetupVerified = true;
+    nextSetupProof =
+      nextSetupProof || state.setupProof;
+
+    if (!nextGeneration) {
+      nextGeneration =
+        state.team.generation;
+    }
+  }
+
+  if (
+    state.rosterReady &&
+    !nextRosterReady
+  ) {
+    nextRosterReady = true;
+  }
+
+  for (const did of state.team.members) {
+    const previous =
+      state.rosterSignatures.get(did);
+
+    const current =
+      nextRosterSignatures.get(did);
+
+    if (
+      previous?.status === 'accepted' &&
+      current?.status !== 'accepted'
+    ) {
+      nextRosterSignatures.set(
+        did,
+        previous
+      );
+    }
+  }
+
   state.setupVerified = nextSetupVerified;
   state.setupProof = nextSetupProof;
   state.team.generation = nextGeneration;
@@ -1202,21 +1264,47 @@ async function refreshDiscovery() {
 
 
 async function refreshTeamRoom() {
-  if (
-    !state.team.gameId ||
-    !state.setupVerified ||
-    !state.team.generation
-  ) {
+  if (!state.team.gameId) {
     state.teamMessages = [];
     return;
   }
 
   const roomName = teamRoom(state.team.gameId);
 
-  const room = await readRoom(
-    roomName,
-    [state.team.gameId, REFEREE_DID]
+  let room;
+
+  try {
+    room = await readRoom(
+      roomName,
+      [state.team.gameId, REFEREE_DID]
+    );
+  } catch (error) {
+    const message =
+      String(error?.message || '');
+
+    // Geçici upstream/Codespaces timeout'u daha önce doğrulanmış
+    // şiir ve roster state'ini bozmamalı.
+    if (
+      message === 'upstream_timeout' ||
+      message.includes('(504)') ||
+      message.includes('HTTP 504')
+    ) {
+      return;
+    }
+
+    throw error;
+  }
+
+  const liveGeneration = Number(
+    room?.generation || state.team.generation || 0
   );
+
+  if (
+    Number.isSafeInteger(liveGeneration) &&
+    liveGeneration > 0
+  ) {
+    state.team.generation = liveGeneration;
+  }
 
   state.teamMessages = room.messages || [];
 
@@ -1239,6 +1327,65 @@ async function refreshTeamRoom() {
       receiptStatus(record) === 'accepted' &&
       record.roster_ready === true
     );
+
+  // Discovery geçmişi geçici olarak timeout olsa bile takım odasındaki
+  // imzası doğrulanmış resmî roster_ready:true receipt otoritatiftir.
+  // Bu receipt yalnızca verifiedReceipts() içinden geldiği için
+  // hakem Ed25519 imzası doğrulanmıştır.
+  if (
+    readyReceipt &&
+    Number.isSafeInteger(state.team.generation) &&
+    state.team.generation > 0 &&
+    state.team.members.length >= 4 &&
+    state.team.members.length <= 8
+  ) {
+    state.setupVerified = true;
+    state.rosterReady = true;
+
+    state.setupProof = {
+      status: 'accepted',
+      requestId: String(
+        referencedRequestId(readyReceipt.record) || ''
+      ),
+      refereeDid: String(
+        readyReceipt.message?.from || ''
+      ),
+      signatureVerified: true,
+      roomSeq:
+        readyReceipt.message?.seq ??
+        readyReceipt.message?.room_seq ??
+        '',
+      generation: state.team.generation,
+      generationSource:
+        'Doğrulanmış takım odası roster_ready:true receipt'
+    };
+
+    for (const did of state.team.members) {
+      const existing =
+        state.rosterSignatures.get(did);
+
+      if (existing?.status === 'accepted') {
+        continue;
+      }
+
+      state.rosterSignatures.set(
+        did,
+        {
+          status: 'accepted',
+          requestId: '',
+          reason:
+            'Resmî hakem roster_ready:true ile doğruladı.',
+          messageSeq: '',
+          receiptSeq:
+            readyReceipt.message?.seq ??
+            readyReceipt.message?.room_seq ??
+            ''
+        }
+      );
+    }
+
+    saveTeam();
+  }
 
   if (readyReceipt) {
     const readyRequestId = String(
@@ -1326,23 +1473,31 @@ async function refreshAll() {
   if (!state.did) return render();
 
   try {
-    const registrationPromise = refreshRegistration();
-    const membersPromise = refreshMembers();
-
-    // Takım/roster durumu kayıt kontrollerini beklemesin.
-    await refreshDiscovery();
+    // KRİTİK YOL:
+    // Önce yalnızca küçük takım odasını oku.
+    // Güncel version/hash/receipt burada belirlenir.
     await refreshTeamRoom();
 
-    // Kritik yarışma durumunu mümkün olan en kısa sürede göster.
+    // Kullanıcı güncel şiir state'ini hemen görsün.
     render();
 
-    // Kayıt etiketleri bağımsız olarak arkadan tamamlanır.
-    await Promise.all([
-      registrationPromise,
-      membersPromise
-    ]);
-
-    render();
+    // BÜYÜK ORTAK ODALAR:
+    // Discovery / registration geçmişi artık kritik yolu
+    // bloke etmez. Aynı anda birden fazla ağır tarama başlatma.
+    if (!refreshAll.backgroundPromise) {
+      refreshAll.backgroundPromise =
+        Promise.allSettled([
+          refreshDiscovery(),
+          refreshRegistration(),
+          refreshMembers()
+        ])
+          .then(() => {
+            render();
+          })
+          .finally(() => {
+            refreshAll.backgroundPromise = null;
+          });
+    }
   } catch (error) {
     toast(error.message, 'bad');
   }
@@ -1588,7 +1743,35 @@ function currentLineSyllables() {
   if (!state.dictionaryReady) return 0;
   const lines = String(state.poem || '').split('\n').filter((_, i, a) => i < a.length - 1 || a[i]);
   const last = lines.at(-1) || '';
-  return last.split(/\s+/).filter(Boolean).reduce((sum, word) => sum + syllablesOf(word), 0);
+  const used = last
+    .split(/\s+/)
+    .filter(Boolean)
+    .reduce((sum, word) => sum + syllablesOf(word), 0);
+
+  // Tam 10 hecelik dize bittiyse sıradaki kelime yeni dizeden başlar.
+  return used === 10 ? 0 : used;
+}
+
+function displayLineNumber() {
+  if (!state.dictionaryReady) return state.current.line || 1;
+
+  // Stanza ayırıcı boş satırlar gerçek sonnet dizeleri değildir.
+  const lines = String(state.poem || '')
+    .split('\n')
+    .filter(line => line.trim().length > 0);
+
+  if (!lines.length) return 1;
+
+  const last = lines.at(-1) || '';
+  const used = last
+    .split(/\s+/)
+    .filter(Boolean)
+    .reduce((sum, word) => sum + syllablesOf(word), 0);
+
+  return Math.min(
+    14,
+    lines.length + (used === 10 && !state.current.complete ? 1 : 0)
+  );
 }
 
 async function validateWord() {
@@ -2528,7 +2711,7 @@ function manualWordStep() {
   if (words.length !== MANUAL_SENDER_SEQUENCE.length) {
     return {
       ok: false,
-      reason: `TXT taslağında ${words.length} kelime var; beklenen 110.`,
+      reason: `TXT taslağında ${words.length} kelime var; beklenen ${MANUAL_SENDER_SEQUENCE.length}.`,
       version,
       words
     };
@@ -2620,9 +2803,9 @@ function renderManualWord() {
 
   $('#manualWordOrder').textContent =
     step.complete
-      ? '110 / 110'
+      ? `${MANUAL_SENDER_SEQUENCE.length} / ${MANUAL_SENDER_SEQUENCE.length}`
       : step.number
-        ? `${String(step.number).padStart(3, '0')} / 110`
+        ? `${String(step.number).padStart(3, '0')} / ${MANUAL_SENDER_SEQUENCE.length}`
         : '—';
 
   $('#manualWordValue').textContent =
@@ -2826,7 +3009,7 @@ function renderWorkspace() {
 
   $('#teamRoom').textContent = teamRoom(state.team.gameId);
   $('#version').textContent = String(state.current.version || 0);
-  $('#line').textContent = `${state.current.line || 1} / 14`;
+  $('#line').textContent = `${displayLineNumber()} / 14`;
   $('#stateHash').textContent = state.current.stateHash || '—';
   $('#lastContributor').textContent = shortDid(state.current.lastContributor);
   $('#poem').textContent = state.poem || 'Kabul edilen kelimeler burada görünecek.';
